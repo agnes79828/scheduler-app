@@ -20,28 +20,57 @@ function isWorking(shift: ShiftType | null): boolean {
   return shift !== null && shift !== 'off';
 }
 
-function consecutiveWorkDaysBefore(schedule: (ShiftType | null)[], day: number): number {
+// prevTail：上個月最後 N 天的班別，index 0 = 最早，最後一個 = 前一天
+function consecutiveWorkDaysBefore(
+  schedule: (ShiftType | null)[],
+  day: number,
+  prevTail: (ShiftType | null)[] = [],
+): number {
   let count = 0;
   for (let d = day - 1; d >= 0; d--) {
     if (isWorking(schedule[d])) count++;
-    else break;
+    else return count;
+  }
+  // 繼續往上月尾巴查
+  for (let t = prevTail.length - 1; t >= 0; t--) {
+    if (isWorking(prevTail[t])) count++;
+    else return count;
   }
   return count;
 }
 
-function consecutiveRestDaysBefore(schedule: (ShiftType | null)[], day: number): number {
+function consecutiveRestDaysBefore(
+  schedule: (ShiftType | null)[],
+  day: number,
+  prevTail: (ShiftType | null)[] = [],
+): number {
   let count = 0;
   for (let d = day - 1; d >= 0; d--) {
     if (schedule[d] === 'off') count++;
-    else break;
+    else return count;
+  }
+  for (let t = prevTail.length - 1; t >= 0; t--) {
+    if (prevTail[t] === 'off') count++;
+    else return count;
   }
   return count;
 }
 
-function workedNightBefore(schedule: (ShiftType | null)[], day: number): boolean {
-  if (day === 0) return false;
-  const prev = schedule[day - 1];
-  return prev === 'night' || prev === 'full';
+function workedNightBefore(
+  schedule: (ShiftType | null)[],
+  day: number,
+  prevTail: (ShiftType | null)[] = [],
+): boolean {
+  if (day > 0) {
+    const prev = schedule[day - 1];
+    return prev === 'night' || prev === 'full';
+  }
+  // day === 0：看上月最後一天
+  if (prevTail.length > 0) {
+    const prev = prevTail[prevTail.length - 1];
+    return prev === 'night' || prev === 'full';
+  }
+  return false;
 }
 
 function checkCoverage(shifts: (ShiftType | null)[]): { hasDay: boolean; hasNight: boolean } {
@@ -85,11 +114,13 @@ export function countPreferenceViolations(result: ScheduleResult, employees: Emp
   return count;
 }
 
+// previousTail：每位員工上月末 7 天的班別（empId → 長度 7 的陣列）
 export function generateSchedule(
   employees: Employee[],
   year: number,
   month: number,
   preferences: Preferences,
+  previousTail: Record<string, (ShiftType | null)[]> = {},
 ): ScheduleResult {
   const daysInMonth = getDaysInMonth(year, month);
   const warnings: ScheduleWarning[] = [];
@@ -151,21 +182,21 @@ export function generateSchedule(
       const mustB = offCounts[b.id] >= b.daysOffTarget ? 0 : 1;
       if (mustA !== mustB) return mustA - mustB;
       // 1. 連休天數少的優先上班（讓連休的人繼續休，休假自然集中）
-      const restA = consecutiveRestDaysBefore(schedule[a.id], day);
-      const restB = consecutiveRestDaysBefore(schedule[b.id], day);
+      const restA = consecutiveRestDaysBefore(schedule[a.id], day, previousTail[a.id]);
+      const restB = consecutiveRestDaysBefore(schedule[b.id], day, previousTail[b.id]);
       if (restA !== restB) return restA - restB;
       // 2. 打平時用本次隨機排名決定（整個月固定，不同次執行不同）
       return randomRank[a.id] - randomRank[b.id];
     });
 
     const eligible = unassigned.filter(
-      e => consecutiveWorkDaysBefore(schedule[e.id], day) < 5
+      e => consecutiveWorkDaysBefore(schedule[e.id], day, previousTail[e.id]) < 5
     );
     const pool = eligible.length > 0 ? eligible : unassigned;
     const isForced = eligible.length === 0 && unassigned.length > 0;
 
-    // 可上白班：昨天沒上夜班或全日班
-    const dayPool = pool.filter(e => !workedNightBefore(schedule[e.id], day));
+    // 可上白班：昨天沒上夜班或全日班（含跨月）
+    const dayPool = pool.filter(e => !workedNightBefore(schedule[e.id], day, previousTail[e.id]));
     const nightForcedForDay = dayPool.length === 0 && pool.length > 0;
 
     // 依班別偏好分群

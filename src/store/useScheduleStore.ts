@@ -10,6 +10,7 @@ interface ScheduleStore {
   month: number;
   employees: Employee[];
   preferences: Preferences;
+  previousTail: Record<string, (ShiftType | null)[]>; // empId → 上月末 7 天班別
   maxRetries: number;
 
   // 產生結果
@@ -33,6 +34,7 @@ interface ScheduleStore {
   clearPreferences: (employeeId: string) => void;
   setPreferences: (preferences: Preferences) => void;
   setEmployees: (employees: Employee[]) => void;
+  setPreviousTailShift: (empId: string, dayIndex: number, shift: ShiftType | null) => void;
   generate: () => Promise<void>;
   setStep: (step: 1 | 2 | 3) => void;
   setMaxRetries: (n: number) => void;
@@ -54,6 +56,7 @@ export const useScheduleStore = create<ScheduleStore>()(
       month: now.getMonth() + 1,
       employees: DEFAULT_EMPLOYEES,
       preferences: {},
+      previousTail: {},
       maxRetries: 50,
       result: null,
       isGenerating: false,
@@ -116,10 +119,18 @@ export const useScheduleStore = create<ScheduleStore>()(
 
       setEmployees: (employees) => set({ employees }),
 
+      setPreviousTailShift: (empId, dayIndex, shift) => {
+        set(state => {
+          const tail = [...(state.previousTail[empId] ?? Array(7).fill(null))];
+          tail[dayIndex] = shift;
+          return { previousTail: { ...state.previousTail, [empId]: tail } };
+        });
+      },
+
       setMaxRetries: (n) => set({ maxRetries: Math.max(1, Math.min(100000, n)) }),
 
       generate: async () => {
-        const { employees, year, month, preferences, maxRetries } = get();
+        const { employees, year, month, preferences, maxRetries, previousTail } = get();
 
         // 先顯示 loading，讓 UI 有機會重繪
         set({ isGenerating: true });
@@ -134,14 +145,14 @@ export const useScheduleStore = create<ScheduleStore>()(
         const isBetter = (a: ReturnType<typeof score>, b: ReturnType<typeof score>) =>
           a.days < b.days || (a.days === b.days && a.pref < b.pref);
 
-        let best = generateSchedule(employees, year, month, preferences);
+        let best = generateSchedule(employees, year, month, preferences, previousTail);
         let bestScore = score(best);
         let totalTries = 1;
 
         for (let i = 1; i < maxRetries; i++) {
           // 若問題天數與偏好都已完美，提前結束
           if (bestScore.days === 0 && bestScore.pref === 0) break;
-          const attempt = generateSchedule(employees, year, month, preferences);
+          const attempt = generateSchedule(employees, year, month, preferences, previousTail);
           totalTries++;
           const s = score(attempt);
           if (isBetter(s, bestScore)) {

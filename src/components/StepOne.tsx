@@ -1,20 +1,41 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useScheduleStore } from '@/store/useScheduleStore';
 import { getMonthHolidayStats } from '@/lib/holidays';
+import { getDaysInMonth } from '@/lib/scheduler';
 import type { ShiftPreference, ShiftType, Preferences } from '@/types/schedule';
+import { SHIFT_CONFIG } from '@/types/schedule';
+
+const PREV_TAIL_CYCLE: (ShiftType | null)[] = [null, 'day', 'night', 'full', 'off'];
 
 export default function StepOne() {
   const {
-    year, month, employees, maxRetries, preferences,
+    year, month, employees, maxRetries, preferences, previousTail,
     setYearMonth, addEmployee, removeEmployee, updateEmployee,
     setEmployees, setPreferences, setStep, setMaxRetries,
+    setPreviousTailShift,
     holidayMap, holidaysLoading, fetchHolidays,
   } = useScheduleStore();
+
+  const [showPrevTail, setShowPrevTail] = useState(false);
 
   useEffect(() => {
     fetchHolidays(year);
   }, [year, fetchHolidays]);
+
+  // 計算上個月的年月 & 實際日期（末 7 天）
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear  = month === 1 ? year - 1 : year;
+  const prevDaysInMonth = getDaysInMonth(prevYear, prevMonth);
+  // dayIndex 0 = 7天前，6 = 前一天
+  const prevTailDates = Array.from({ length: 7 }, (_, i) => prevDaysInMonth - 6 + i);
+
+  const handlePrevTailClick = (empId: string, dayIndex: number) => {
+    const current = previousTail[empId]?.[dayIndex] ?? null;
+    const idx = PREV_TAIL_CYCLE.indexOf(current);
+    const next = PREV_TAIL_CYCLE[(idx + 1) % PREV_TAIL_CYCLE.length];
+    setPreviousTailShift(empId, dayIndex, next);
+  };
 
   const stats = getMonthHolidayStats(holidayMap, year, month);
   const hasHolidayData = Object.keys(holidayMap).length > 0;
@@ -255,6 +276,66 @@ export default function StepOne() {
           />
           <span className="text-xs text-gray-500">次（1–100,000，次數越多越慢但排出較佳結果）</span>
         </div>
+      </div>
+
+      {/* 上月末 7 天班別設定 */}
+      <div className="mb-6">
+        <button
+          type="button"
+          onClick={() => setShowPrevTail(v => !v)}
+          className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-blue-600 transition-colors"
+        >
+          <span className={`inline-block transition-transform ${showPrevTail ? 'rotate-90' : ''}`}>▶</span>
+          上月末 7 天班別（跨月連班規則用）
+        </button>
+        {showPrevTail && (
+          <div className="mt-3 overflow-x-auto">
+            <p className="text-xs text-gray-500 mb-2">
+              點擊格子循環切換班別，用於讓排班規則（連班上限 / 夜班後不接白班）跨月連續計算。不列入本月排班。
+            </p>
+            <table className="text-xs border-collapse select-none">
+              <thead>
+                <tr>
+                  <th className="p-2 border border-gray-200 bg-gray-100 sticky left-0 z-10 min-w-24 text-left text-gray-700 font-semibold">
+                    員工
+                  </th>
+                  {prevTailDates.map((date, i) => (
+                    <th
+                      key={i}
+                      className="p-1 border border-gray-200 w-10 text-center font-medium bg-gray-100 text-gray-600"
+                    >
+                      <span className="block text-[10px] text-gray-400">{prevMonth}/{date}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {employees.map(emp => (
+                  <tr key={emp.id}>
+                    <td className="p-2 border border-gray-200 sticky left-0 bg-white z-10 font-semibold text-gray-800 whitespace-nowrap">
+                      {emp.name}
+                    </td>
+                    {Array.from({ length: 7 }, (_, dayIndex) => {
+                      const shift = previousTail[emp.id]?.[dayIndex] ?? null;
+                      const config = shift ? SHIFT_CONFIG[shift] : null;
+                      return (
+                        <td
+                          key={dayIndex}
+                          onClick={() => handlePrevTailClick(emp.id, dayIndex)}
+                          className={`border border-gray-200 text-center cursor-pointer transition-opacity hover:opacity-70 w-10 h-8 ${
+                            config ? config.color : 'hover:bg-blue-50 text-gray-300'
+                          }`}
+                        >
+                          {config?.label ?? '—'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end">

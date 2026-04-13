@@ -2,15 +2,21 @@
 import { useEffect } from 'react';
 import { useScheduleStore } from '@/store/useScheduleStore';
 import { SHIFT_CONFIG, SHIFT_CYCLE } from '@/types/schedule';
-import { getDaysInMonth } from '@/lib/scheduler';
+import { getDaysInMonth, getWeekday } from '@/lib/scheduler';
 import { toDateKey } from '@/lib/holidays';
 
 export default function StepThree() {
   const {
-    year, month, employees, result, preferences, isGenerating,
+    year, month, employees, result, preferences, isGenerating, previousTail,
     setStep, setPreference, generate,
     holidayMap, fetchHolidays,
   } = useScheduleStore();
+
+  // 上月末 7 天實際日期
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear  = month === 1 ? year - 1 : year;
+  const prevDaysInMonth = getDaysInMonth(prevYear, prevMonth);
+  const prevTailDates = Array.from({ length: 7 }, (_, i) => prevDaysInMonth - 6 + i);
 
   useEffect(() => {
     fetchHolidays(year);
@@ -71,6 +77,31 @@ export default function StepThree() {
                 <th className="p-2 border border-gray-200 bg-gray-100 sticky left-0 z-10 min-w-24 text-left text-gray-700 font-semibold">
                   員工
                 </th>
+                {prevTailDates.map((date, i) => {
+                  const key = toDateKey(prevYear, prevMonth, date - 1);
+                  const holidayName = holidayMap[key] ?? '';
+                  const isNational = holidayName.trim() !== '';
+                  const weekday = getWeekday(prevYear, prevMonth, date);
+                  const isWeekend = weekday === 0 || weekday === 6;
+                  const isHoliday = isNational || isWeekend;
+                  return (
+                    <th
+                      key={`prev-${i}`}
+                      title={holidayName || `${prevYear}/${prevMonth}/${date}`}
+                      className={`p-1 border border-gray-200 w-8 text-center font-medium opacity-75 ${
+                        isNational
+                          ? 'bg-orange-100 text-orange-700'
+                          : isWeekend
+                          ? 'bg-red-50 text-red-500'
+                          : 'bg-gray-50 text-gray-400'
+                      }`}
+                    >
+                      <span className="block text-[9px] leading-none">{prevMonth}/{date}</span>
+                      {isNational && <span className="block text-[7px] leading-none text-orange-500">●</span>}
+                    </th>
+                  );
+                })}
+                <th className="border-l-2 border-l-gray-400 border-gray-200 w-0 p-0" />
                 {days.map(d => {
                   const key = toDateKey(year, month, d);
                   const isHoliday = key in holidayMap;
@@ -107,6 +138,33 @@ export default function StepThree() {
                     <td className="p-2 border border-gray-200 sticky left-0 bg-white z-10 font-semibold text-gray-800 whitespace-nowrap">
                       {emp.name}
                     </td>
+                    {Array.from({ length: 7 }, (_, dayIndex) => {
+                      const date = prevTailDates[dayIndex];
+                      const key = toDateKey(prevYear, prevMonth, date - 1);
+                      const holidayName = holidayMap[key] ?? '';
+                      const isNational = holidayName.trim() !== '';
+                      const weekday = getWeekday(prevYear, prevMonth, date);
+                      const isWeekend = weekday === 0 || weekday === 6;
+                      const shift = previousTail[emp.id]?.[dayIndex] ?? null;
+                      const config = shift ? SHIFT_CONFIG[shift] : null;
+                      return (
+                        <td
+                          key={`prev-${dayIndex}`}
+                          className={`border border-gray-200 text-center w-8 h-8 opacity-60 ${
+                            config
+                              ? config.color
+                              : isNational
+                              ? 'bg-orange-100 text-gray-300'
+                              : isWeekend
+                              ? 'bg-red-50 text-gray-300'
+                              : 'bg-gray-50 text-gray-300'
+                          }`}
+                        >
+                          {config?.label ?? '—'}
+                        </td>
+                      );
+                    })}
+                    <td className="border-l-2 border-l-gray-400 border-gray-200 w-0 p-0" />
                     {days.map(d => {
                       const scheduledShift = schedule[emp.id]?.[d];
                       const prefShift = preferences[emp.id]?.[d] ?? null;
