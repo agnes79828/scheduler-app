@@ -85,25 +85,45 @@ export default function StepOne() {
         </div>
         <div className="space-y-2">
           {employees.map(emp => (
-            <div key={emp.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
+            <div key={emp.id} className="flex flex-wrap items-center gap-2 p-3 border border-gray-200 rounded-lg bg-gray-50">
               <input
                 type="text"
                 value={emp.name}
                 onChange={e => updateEmployee(emp.id, { name: e.target.value })}
-                className="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="flex-1 min-w-24 border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 placeholder="員工姓名"
               />
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-xs font-medium text-gray-700">目標休假</span>
+                <span className="text-xs font-medium text-gray-700">休假</span>
                 <input
                   type="number"
                   value={emp.daysOffTarget}
                   onChange={e => updateEmployee(emp.id, { daysOffTarget: Math.max(0, parseInt(e.target.value) || 0) })}
-                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 w-14 text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 w-12 text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
                   min={0}
                   max={20}
                 />
                 <span className="text-xs font-medium text-gray-700">天</span>
+              </div>
+              {/* 班別偏好 */}
+              <div className="flex items-center gap-1 shrink-0">
+                {(['none', 'day', 'night'] as const).map(pref => (
+                  <button
+                    key={pref}
+                    onClick={() => updateEmployee(emp.id, { shiftPreference: pref })}
+                    className={`text-xs px-2 py-1 rounded-md border transition-colors ${
+                      emp.shiftPreference === pref
+                        ? pref === 'day'
+                          ? 'bg-sky-500 text-white border-sky-500'
+                          : pref === 'night'
+                          ? 'bg-indigo-500 text-white border-indigo-500'
+                          : 'bg-gray-400 text-white border-gray-400'
+                        : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    {pref === 'none' ? '無偏好' : pref === 'day' ? '偏白班' : '偏夜班'}
+                  </button>
+                ))}
               </div>
               {employees.length > 3 && (
                 <button

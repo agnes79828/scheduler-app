@@ -1,20 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Employee, ShiftType, Preferences, ScheduleResult } from '@/types/schedule';
-import { generateSchedule } from '@/lib/scheduler';
+import { generateSchedule, countProblematicDays, countPreferenceViolations } from '@/lib/scheduler';
 import { fetchTaiwanCalendar, buildHolidayMap } from '@/lib/holidays';
-
-const COVERAGE_KEYWORDS = ['夜班人力不足', '缺白班', '缺夜班', '所有人員均無法排班'];
-
-/** 計算「有問題的天數」（同一天多個警告只算一天） */
-function countProblematicDays(result: ScheduleResult): number {
-  const days = new Set(
-    result.warnings
-      .filter(w => COVERAGE_KEYWORDS.some(kw => w.message.includes(kw)))
-      .map(w => w.day)
-  );
-  return days.size;
-}
 
 interface ScheduleStore {
   // 設定（持久化）
@@ -51,9 +39,9 @@ interface ScheduleStore {
 }
 
 const DEFAULT_EMPLOYEES: Employee[] = [
-  { id: '1', name: '護理師 A', daysOffTarget: 8 },
-  { id: '2', name: '護理師 B', daysOffTarget: 8 },
-  { id: '3', name: '護理師 C', daysOffTarget: 8 },
+  { id: '1', name: '治療師 A', daysOffTarget: 8, shiftPreference: 'none' },
+  { id: '2', name: '治療師 B', daysOffTarget: 8, shiftPreference: 'none' },
+  { id: '3', name: '治療師 C', daysOffTarget: 8, shiftPreference: 'none' },
 ];
 
 const now = new Date();
@@ -84,7 +72,7 @@ export const useScheduleStore = create<ScheduleStore>()(
         set({
           employees: [
             ...employees,
-            { id, name: names[employees.length] ?? `護理師 ${employees.length + 1}`, daysOffTarget: 8 },
+            { id, name: names[employees.length] ?? `護理師 ${employees.length + 1}`, daysOffTarget: 8, shiftPreference: 'none' },
           ],
         });
       },
@@ -134,17 +122,28 @@ export const useScheduleStore = create<ScheduleStore>()(
         set({ isGenerating: true });
         await new Promise(resolve => setTimeout(resolve, 30));
 
-        let best = generateSchedule(employees, year, month, preferences, 0);
-        let bestDays = countProblematicDays(best);
+        // 每次呼叫 generateSchedule 內部用 Math.random()，天然不重複
+        // 複合評分：問題天數（主）＋偏好違反次數（次）
+        const score = (r: ScheduleResult) => ({
+          days: countProblematicDays(r),
+          pref: countPreferenceViolations(r, employees),
+        });
+        const isBetter = (a: ReturnType<typeof score>, b: ReturnType<typeof score>) =>
+          a.days < b.days || (a.days === b.days && a.pref < b.pref);
+
+        let best = generateSchedule(employees, year, month, preferences);
+        let bestScore = score(best);
         let totalTries = 1;
 
-        for (let i = 1; i < maxRetries && bestDays > 0; i++) {
-          const attempt = generateSchedule(employees, year, month, preferences, i);
+        for (let i = 1; i < maxRetries; i++) {
+          // 若問題天數與偏好都已完美，提前結束
+          if (bestScore.days === 0 && bestScore.pref === 0) break;
+          const attempt = generateSchedule(employees, year, month, preferences);
           totalTries++;
-          const days = countProblematicDays(attempt);
-          if (days < bestDays) {
+          const s = score(attempt);
+          if (isBetter(s, bestScore)) {
             best = attempt;
-            bestDays = days;
+            bestScore = s;
           }
         }
 

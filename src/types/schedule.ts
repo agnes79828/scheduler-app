@@ -9,10 +9,13 @@ export const SHIFT_CONFIG: Record<ShiftType, { label: string; color: string; dar
 
 export const SHIFT_CYCLE: (ShiftType | null)[] = [null, 'day', 'night', 'full', 'off'];
 
+export type ShiftPreference = 'none' | 'day' | 'night';
+
 export interface Employee {
   id: string;
   name: string;
   daysOffTarget: number;
+  shiftPreference: ShiftPreference;
 }
 
 export type DayPreferences = Record<number, ShiftType>; // key = 0-indexed day
