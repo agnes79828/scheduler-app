@@ -32,6 +32,7 @@ interface ScheduleStore {
   setPreference: (employeeId: string, day: number, shift: ShiftType | null) => void;
   clearPreferences: (employeeId: string) => void;
   setPreferences: (preferences: Preferences) => void;
+  setEmployees: (employees: Employee[]) => void;
   generate: () => Promise<void>;
   setStep: (step: 1 | 2 | 3) => void;
   setMaxRetries: (n: number) => void;
@@ -112,6 +113,8 @@ export const useScheduleStore = create<ScheduleStore>()(
       },
 
       setPreferences: (preferences) => set({ preferences }),
+
+      setEmployees: (employees) => set({ employees }),
 
       setMaxRetries: (n) => set({ maxRetries: Math.max(1, Math.min(100000, n)) }),
 

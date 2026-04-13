@@ -94,6 +94,13 @@ export function generateSchedule(
   const daysInMonth = getDaysInMonth(year, month);
   const warnings: ScheduleWarning[] = [];
 
+  // 每次執行開始時隨機決定員工的優先順序，作為整個月的 stable tiebreaker
+  const randomRank: Record<string, number> = {};
+  shuffle([...employees]).forEach((emp, i) => { randomRank[emp.id] = i; });
+
+  // 隨機選擇起始天（繞一圈處理完整個月），讓不同執行有不同的排班起點
+  const startDay = Math.floor(Math.random() * daysInMonth);
+
   const schedule: Record<string, (ShiftType | null)[]> = {};
   const workCounts: Record<string, number> = {};
   const offCounts: Record<string, number> = {};
@@ -114,7 +121,8 @@ export function generateSchedule(
     }
   }
 
-  for (let day = 0; day < daysInMonth; day++) {
+  for (let i = 0; i < daysInMonth; i++) {
+    const day = (startDay + i) % daysInMonth;
     const dayShifts = employees.map(e => schedule[e.id][day]);
     const { hasDay, hasNight } = checkCoverage(dayShifts);
 
@@ -134,8 +142,8 @@ export function generateSchedule(
       continue;
     }
 
-    // 先隨機洗牌（Math.random），再 stable sort
-    const unassigned = shuffle(employees.filter(e => schedule[e.id][day] === null));
+    // unassigned 員工依規則排序，打平時用本次執行開頭決定的 randomRank
+    const unassigned = employees.filter(e => schedule[e.id][day] === null);
 
     unassigned.sort((a, b) => {
       // 0. 已達休假上限者必須上班，最高優先
@@ -145,8 +153,9 @@ export function generateSchedule(
       // 1. 連休天數少的優先上班（讓連休的人繼續休，休假自然集中）
       const restA = consecutiveRestDaysBefore(schedule[a.id], day);
       const restB = consecutiveRestDaysBefore(schedule[b.id], day);
-      return restA - restB;
-      // 相同條件：維持洗牌後的隨機順序（stable sort）
+      if (restA !== restB) return restA - restB;
+      // 2. 打平時用本次隨機排名決定（整個月固定，不同次執行不同）
+      return randomRank[a.id] - randomRank[b.id];
     });
 
     const eligible = unassigned.filter(
@@ -180,6 +189,9 @@ export function generateSchedule(
     const needDay = !hasDay;
     const needNight = !hasNight;
 
+    // 隨機決定先選白班還是夜班，影響偏好衝突時誰能拿到想要的班
+    const nightFirst = Math.random() < 0.5;
+
     if (needDay && needNight) {
       if (pool.length === 0) {
         warnings.push({ day, message: `第 ${day + 1} 天：所有人員均無法排班` });
@@ -191,8 +203,16 @@ export function generateSchedule(
         warnings.push({ day, message: `第 ${day + 1} 天：夜班人力不足，可在結果頁圈選全日班後重新排班` });
         if (isForced) warnings.push({ day, message: `第 ${day + 1} 天：${emp.name} 突破 5 連班限制` });
       } else {
-        const dayEmp = pickDay()!;
-        const nightEmp = pickNight(dayEmp.id)!;
+        let dayEmp: Employee, nightEmp: Employee;
+        if (nightFirst) {
+          // 先選夜班，再從剩餘選白班
+          nightEmp = pickNight()!;
+          dayEmp = pickDay(nightEmp.id)!;
+        } else {
+          // 先選白班，再從剩餘選夜班
+          dayEmp = pickDay()!;
+          nightEmp = pickNight(dayEmp.id)!;
+        }
         schedule[dayEmp.id][day] = 'day';
         schedule[nightEmp.id][day] = 'night';
         workCounts[dayEmp.id]++;

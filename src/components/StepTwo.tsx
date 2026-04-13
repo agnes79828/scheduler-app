@@ -1,15 +1,14 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useScheduleStore } from '@/store/useScheduleStore';
 import { SHIFT_CONFIG, SHIFT_CYCLE } from '@/types/schedule';
-import type { Preferences, ShiftType } from '@/types/schedule';
 import { getDaysInMonth } from '@/lib/scheduler';
 import { toDateKey } from '@/lib/holidays';
 
 export default function StepTwo() {
   const {
     year, month, employees, preferences, isGenerating,
-    setPreference, clearPreferences, setPreferences, generate, setStep,
+    setPreference, clearPreferences, generate, setStep,
     holidayMap, fetchHolidays,
   } = useScheduleStore();
 
@@ -19,7 +18,6 @@ export default function StepTwo() {
 
   const daysInMonth = getDaysInMonth(year, month);
   const days = Array.from({ length: daysInMonth }, (_, i) => i);
-  const importRef = useRef<HTMLInputElement>(null);
 
   const handleCellClick = (empId: string, day: number) => {
     const current = preferences[empId]?.[day] ?? null;
@@ -28,86 +26,9 @@ export default function StepTwo() {
     setPreference(empId, day, next);
   };
 
-  // 匯出：以員工姓名為 key，方便跨 session 匯入
-  const handleExport = () => {
-    const data = {
-      version: 1,
-      year,
-      month,
-      preferences: Object.fromEntries(
-        employees.map(emp => [
-          emp.name,
-          preferences[emp.id] ?? {},
-        ])
-      ),
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `排班偏好_${year}_${String(month).padStart(2, '0')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // 匯入：依員工姓名匹配，填回 preferences
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target?.result as string);
-        if (!data?.preferences || typeof data.preferences !== 'object') {
-          alert('檔案格式錯誤');
-          return;
-        }
-        const newPrefs: Preferences = { ...preferences };
-        const nameToId = Object.fromEntries(employees.map(e => [e.name, e.id]));
-        let matched = 0;
-        for (const [name, dayMap] of Object.entries(data.preferences)) {
-          const id = nameToId[name];
-          if (!id) continue;
-          matched++;
-          const empPrefs: Record<number, ShiftType> = {};
-          for (const [dayStr, shift] of Object.entries(dayMap as Record<string, string>)) {
-            const d = parseInt(dayStr);
-            if (['day', 'night', 'full', 'off'].includes(shift)) {
-              empPrefs[d] = shift as ShiftType;
-            }
-          }
-          newPrefs[id] = empPrefs;
-        }
-        setPreferences(newPrefs);
-        alert(`匯入完成（比對到 ${matched} 位員工）`);
-      } catch {
-        alert('檔案解析失敗，請確認格式正確');
-      }
-      e.target.value = '';
-    };
-    reader.readAsText(file);
-  };
-
   return (
     <div className="bg-white rounded-xl shadow p-6">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-lg font-semibold text-gray-800">步驟 2：設定排班偏好（選填）</h2>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleExport}
-            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            ↓ 匯出設定
-          </button>
-          <button
-            onClick={() => importRef.current?.click()}
-            className="text-xs px-3 py-1.5 rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-50 transition-colors"
-          >
-            ↑ 匯入設定
-          </button>
-          <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
-        </div>
-      </div>
+      <h2 className="text-lg font-semibold mb-2 text-gray-800">步驟 2：設定排班偏好（選填）</h2>
       <p className="text-sm text-gray-700 mb-1">
         點擊格子循環切換班別：
         <span className="mx-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-xs border border-sky-300">白班</span>→

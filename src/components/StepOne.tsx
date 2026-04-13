@@ -1,26 +1,128 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useScheduleStore } from '@/store/useScheduleStore';
 import { getMonthHolidayStats } from '@/lib/holidays';
+import type { ShiftPreference, ShiftType, Preferences } from '@/types/schedule';
 
 export default function StepOne() {
   const {
-    year, month, employees, maxRetries,
-    setYearMonth, addEmployee, removeEmployee, updateEmployee, setStep, setMaxRetries,
+    year, month, employees, maxRetries, preferences,
+    setYearMonth, addEmployee, removeEmployee, updateEmployee,
+    setEmployees, setPreferences, setStep, setMaxRetries,
     holidayMap, holidaysLoading, fetchHolidays,
   } = useScheduleStore();
 
-  // 年份變更時自動抓取假日資料
   useEffect(() => {
     fetchHolidays(year);
   }, [year, fetchHolidays]);
 
   const stats = getMonthHolidayStats(holidayMap, year, month);
   const hasHolidayData = Object.keys(holidayMap).length > 0;
+  const importRef = useRef<HTMLInputElement>(null);
+
+  // 匯出：基本設定 ＋ 排班偏好 合併為一個檔案
+  const handleExport = () => {
+    const data = {
+      version: 1,
+      year,
+      month,
+      maxRetries,
+      employees: employees.map(e => ({
+        name: e.name,
+        daysOffTarget: e.daysOffTarget,
+        shiftPreference: e.shiftPreference,
+      })),
+      // 偏好以員工姓名為 key，跨 session 仍可識別
+      preferences: Object.fromEntries(
+        employees.map(emp => [emp.name, preferences[emp.id] ?? {}])
+      ),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `排班設定_${year}_${String(month).padStart(2, '0')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 匯入：還原基本設定與排班偏好
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (!Array.isArray(data?.employees)) { alert('檔案格式錯誤'); return; }
+
+        if (typeof data.year === 'number' && typeof data.month === 'number') {
+          setYearMonth(data.year, data.month);
+        }
+        if (typeof data.maxRetries === 'number') {
+          setMaxRetries(data.maxRetries);
+        }
+
+        // 員工（重新生成 id）
+        const imported = (data.employees as Array<Record<string, unknown>>)
+          .slice(0, 5)
+          .map((emp, idx) => ({
+            id: `imported-${Date.now()}-${idx}`,
+            name: typeof emp.name === 'string' ? emp.name : `員工 ${idx + 1}`,
+            daysOffTarget: typeof emp.daysOffTarget === 'number' ? emp.daysOffTarget : 8,
+            shiftPreference: (['none', 'day', 'night'].includes(emp.shiftPreference as string)
+              ? emp.shiftPreference : 'none') as ShiftPreference,
+          }));
+
+        if (imported.length < 3) { alert('員工人數至少需要 3 人'); return; }
+        setEmployees(imported);
+
+        // 依員工姓名還原偏好
+        const nameToId = Object.fromEntries(imported.map(e => [e.name, e.id]));
+        const newPrefs: Preferences = {};
+        if (data.preferences && typeof data.preferences === 'object') {
+          for (const [name, dayMap] of Object.entries(data.preferences)) {
+            const id = nameToId[name];
+            if (!id) continue;
+            const empPrefs: Record<number, ShiftType> = {};
+            for (const [dayStr, shift] of Object.entries(dayMap as Record<string, string>)) {
+              if (['day', 'night', 'full', 'off'].includes(shift)) {
+                empPrefs[parseInt(dayStr)] = shift as ShiftType;
+              }
+            }
+            newPrefs[id] = empPrefs;
+          }
+        }
+        setPreferences(newPrefs);
+        alert(`匯入完成（${imported.length} 位員工）`);
+      } catch {
+        alert('檔案解析失敗，請確認格式正確');
+      }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  };
 
   return (
     <div className="bg-white rounded-xl shadow p-6 max-w-lg mx-auto">
-      <h2 className="text-lg font-semibold mb-5 text-gray-800">步驟 1：基本設定</h2>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-lg font-semibold text-gray-800">步驟 1：基本設定</h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            ↓ 匯出設定
+          </button>
+          <button
+            onClick={() => importRef.current?.click()}
+            className="text-xs px-3 py-1.5 rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-50 transition-colors"
+          >
+            ↑ 匯入設定
+          </button>
+          <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+        </div>
+      </div>
 
       {/* 年月 */}
       <div className="flex gap-4 mb-3">
