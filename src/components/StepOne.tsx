@@ -5,8 +5,8 @@ import { getMonthHolidayStats } from '@/lib/holidays';
 import { getDaysInMonth } from '@/lib/scheduler';
 import type { ShiftPreference, ShiftType, Preferences } from '@/types/schedule';
 import { SHIFT_CONFIG } from '@/types/schedule';
-
-const PREV_TAIL_CYCLE: (ShiftType | null)[] = [null, 'day', 'night', 'full', 'off'];
+import ShiftPopover, { cellClickToOpen } from './ShiftPopover';
+import type { OpenCell } from './ShiftPopover';
 
 export default function StepOne() {
   const {
@@ -18,6 +18,7 @@ export default function StepOne() {
   } = useScheduleStore();
 
   const [showPrevTail, setShowPrevTail] = useState(false);
+  const [openCell, setOpenCell] = useState<OpenCell>(null);
 
   useEffect(() => {
     fetchHolidays(year);
@@ -29,13 +30,6 @@ export default function StepOne() {
   const prevDaysInMonth = getDaysInMonth(prevYear, prevMonth);
   // dayIndex 0 = 7天前，6 = 前一天
   const prevTailDates = Array.from({ length: 7 }, (_, i) => prevDaysInMonth - 6 + i);
-
-  const handlePrevTailClick = (empId: string, dayIndex: number) => {
-    const current = previousTail[empId]?.[dayIndex] ?? null;
-    const idx = PREV_TAIL_CYCLE.indexOf(current);
-    const next = PREV_TAIL_CYCLE[(idx + 1) % PREV_TAIL_CYCLE.length];
-    setPreviousTailShift(empId, dayIndex, next);
-  };
 
   const stats = getMonthHolidayStats(holidayMap, year, month);
   const hasHolidayData = Object.keys(holidayMap).length > 0;
@@ -312,7 +306,7 @@ export default function StepOne() {
         {showPrevTail && (
           <div className="mt-3 overflow-x-auto">
             <p className="text-xs text-gray-500 mb-2">
-              點擊格子循環切換班別，用於讓排班規則（連班上限 / 夜班後不接白班）跨月連續計算。不列入本月排班。
+              點擊格子選擇班別，用於讓排班規則（連班上限 / 夜班後不接白班）跨月連續計算。不列入本月排班。
             </p>
             <table className="text-xs border-collapse select-none">
               <thead>
@@ -339,13 +333,15 @@ export default function StepOne() {
                     {Array.from({ length: 7 }, (_, dayIndex) => {
                       const shift = previousTail[emp.id]?.[dayIndex] ?? null;
                       const config = shift ? SHIFT_CONFIG[shift] : null;
+                      const cellKey = `tail-${emp.id}-${dayIndex}`;
+                      const isOpen = openCell?.key === cellKey;
                       return (
                         <td
                           key={dayIndex}
-                          onClick={() => handlePrevTailClick(emp.id, dayIndex)}
-                          className={`border border-gray-200 text-center cursor-pointer transition-opacity hover:opacity-70 w-10 h-8 ${
-                            config ? config.color : 'hover:bg-blue-50 text-gray-300'
-                          }`}
+                          onClick={e => setOpenCell(cellClickToOpen(e, cellKey, openCell))}
+                          className={`border border-gray-200 text-center cursor-pointer transition-colors w-10 h-8 ${
+                            isOpen ? 'ring-2 ring-blue-400 ring-inset' : ''
+                          } ${config ? config.color : 'hover:bg-blue-50 text-gray-300'}`}
                         >
                           {config?.label ?? '—'}
                         </td>
@@ -357,6 +353,17 @@ export default function StepOne() {
             </table>
           </div>
         )}
+
+        <ShiftPopover
+          open={openCell}
+          onPick={shift => {
+            if (!openCell) return;
+            const parts = openCell.key.split('-'); // tail-{empId}-{dayIndex}
+            setPreviousTailShift(parts[1], parseInt(parts[2]), shift);
+            setOpenCell(null);
+          }}
+          onClose={() => setOpenCell(null)}
+        />
       </div>
 
       <div className="flex justify-end">

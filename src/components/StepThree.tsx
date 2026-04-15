@@ -1,9 +1,11 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useScheduleStore } from '@/store/useScheduleStore';
-import { SHIFT_CONFIG, SHIFT_CYCLE } from '@/types/schedule';
+import { SHIFT_CONFIG } from '@/types/schedule';
 import { getDaysInMonth, getWeekday } from '@/lib/scheduler';
 import { toDateKey } from '@/lib/holidays';
+import ShiftPopover, { cellClickToOpen } from './ShiftPopover';
+import type { OpenCell } from './ShiftPopover';
 
 export default function StepThree() {
   const {
@@ -11,6 +13,8 @@ export default function StepThree() {
     setStep, setPreference, generate,
     holidayMap, fetchHolidays,
   } = useScheduleStore();
+
+  const [openCell, setOpenCell] = useState<OpenCell>(null);
 
   // 上月末 7 天實際日期
   const prevMonth = month === 1 ? 12 : month - 1;
@@ -33,13 +37,6 @@ export default function StepThree() {
     return total + Object.keys(preferences[emp.id] ?? {}).length;
   }, 0);
 
-  // 點擊循環：null → 白 → 夜 → 全 → 休 → null
-  const handleCellClick = (empId: string, day: number) => {
-    const current = preferences[empId]?.[day] ?? null;
-    const idx = SHIFT_CYCLE.indexOf(current);
-    const next = SHIFT_CYCLE[(idx + 1) % SHIFT_CYCLE.length];
-    setPreference(empId, day, next);
-  };
 
   return (
     <div className="space-y-5">
@@ -169,22 +166,27 @@ export default function StepThree() {
                       const scheduledShift = schedule[emp.id]?.[d];
                       const prefShift = preferences[emp.id]?.[d] ?? null;
                       const hasPref = prefShift !== null;
-                      // 有手動標記就顯示標記的班別，否則顯示排班結果
                       const displayShift = hasPref ? prefShift : scheduledShift;
                       const config = displayShift ? SHIFT_CONFIG[displayShift] : null;
                       const key = toDateKey(year, month, d);
                       const isHoliday = key in holidayMap;
+                      const cellKey = `${emp.id}-${d}`;
+                      const isOpen = openCell?.key === cellKey;
 
                       return (
                         <td
                           key={d}
-                          onClick={() => handleCellClick(emp.id, d)}
-                          title={hasPref ? `手動標記：${config?.label ?? '清除'} （點擊切換）` : '點擊標記班別'}
+                          onClick={e => setOpenCell(cellClickToOpen(e, cellKey, openCell))}
+                          title={hasPref ? `手動標記：${config?.label ?? '清除'}` : '點擊標記班別'}
                           className={`border text-center w-8 h-8 cursor-pointer transition-all hover:opacity-75 ${
-                            hasPref
-                              ? `border-blue-400 ring-2 ring-inset ring-blue-400 ${config ? config.color : 'bg-white'}`
-                              : config
-                              ? `border-gray-200 ${config.color}`
+                            isOpen
+                              ? 'ring-2 ring-blue-500 ring-inset z-20'
+                              : hasPref
+                              ? `border-blue-400 ring-2 ring-inset ring-blue-400`
+                              : ''
+                          } ${
+                            config
+                              ? config.color
                               : isHoliday
                               ? 'border-gray-200 bg-red-50'
                               : 'border-gray-200'
@@ -203,6 +205,17 @@ export default function StepThree() {
             </tbody>
           </table>
         </div>
+
+        <ShiftPopover
+          open={openCell}
+          onPick={shift => {
+            if (!openCell) return;
+            const [empId, dayStr] = openCell.key.split('-');
+            setPreference(empId, parseInt(dayStr), shift);
+            setOpenCell(null);
+          }}
+          onClose={() => setOpenCell(null)}
+        />
 
         {/* 重新排班區 */}
         <div className={`mt-4 flex items-center justify-between rounded-lg px-4 py-3 border transition-colors ${
