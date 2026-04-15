@@ -4,12 +4,12 @@ import { useScheduleStore } from '@/store/useScheduleStore';
 import { SHIFT_CONFIG } from '@/types/schedule';
 import { getDaysInMonth, getWeekday } from '@/lib/scheduler';
 import { toDateKey } from '@/lib/holidays';
-import ShiftPopover, { cellClickToOpen } from './ShiftPopover';
+import ShiftPopover, { cellClickToOpen, THERAPIST_OPTIONS, NURSE_OPTIONS } from './ShiftPopover';
 import type { OpenCell } from './ShiftPopover';
 
 export default function StepThree() {
   const {
-    year, month, employees, result, preferences, isGenerating, previousTail,
+    mode, year, month, employees, result, preferences, isGenerating, previousTail,
     setStep, setPreference, generate,
     holidayMap, fetchHolidays,
   } = useScheduleStore();
@@ -208,6 +208,7 @@ export default function StepThree() {
 
         <ShiftPopover
           open={openCell}
+          options={mode === 'nurse' ? NURSE_OPTIONS : THERAPIST_OPTIONS}
           onPick={shift => {
             if (!openCell) return;
             const [empId, dayStr] = openCell.key.split('-');
@@ -254,7 +255,14 @@ export default function StepThree() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <h3 className="font-semibold text-amber-900 mb-2">排班警告（{warnings.length} 筆）</h3>
           <ul className="space-y-1">
-            {warnings.map((w, i) => (
+            {[...warnings]
+              .sort((a, b) => {
+                if (a.day === b.day) return 0;
+                if (a.day === -1) return 1;
+                if (b.day === -1) return -1;
+                return a.day - b.day;
+              })
+              .map((w, i) => (
               <li key={i} className="text-sm text-amber-800">
                 • {w.message}
               </li>
@@ -273,7 +281,10 @@ export default function StepThree() {
                 <th className="text-left py-2 px-3 text-gray-700 font-semibold">員工</th>
                 <th className="text-center py-2 px-3 text-sky-700 font-semibold">白班</th>
                 <th className="text-center py-2 px-3 text-indigo-700 font-semibold">夜班</th>
-                <th className="text-center py-2 px-3 text-rose-700 font-semibold">全日</th>
+                {mode === 'nurse'
+                  ? <th className="text-center py-2 px-3 text-violet-700 font-semibold">大夜</th>
+                  : <th className="text-center py-2 px-3 text-rose-700 font-semibold">全日</th>
+                }
                 <th className="text-center py-2 px-3 text-gray-600 font-semibold">休假</th>
                 <th className="text-center py-2 px-3 text-gray-700 font-semibold">最長連班</th>
               </tr>
@@ -286,7 +297,10 @@ export default function StepThree() {
                     <td className="py-2 px-3 font-semibold text-gray-800">{emp.name}</td>
                     <td className="py-2 px-3 text-center text-sky-700 font-medium">{s.day}</td>
                     <td className="py-2 px-3 text-center text-indigo-700 font-medium">{s.night}</td>
-                    <td className="py-2 px-3 text-center text-rose-700 font-medium">{s.full}</td>
+                    {mode === 'nurse'
+                      ? <td className="py-2 px-3 text-center text-violet-700 font-medium">{s.overnight}</td>
+                      : <td className="py-2 px-3 text-center text-rose-700 font-medium">{s.full}</td>
+                    }
                     <td className="py-2 px-3 text-center text-gray-600 font-medium">{s.off}</td>
                     <td className="py-2 px-3 text-center">
                       <span className={`font-semibold ${s.maxConsecutive >= 5 ? 'text-red-600' : 'text-gray-800'}`}>

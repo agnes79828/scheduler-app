@@ -89,7 +89,7 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-const COVERAGE_KEYWORDS = ['夜班人力不足', '缺白班', '缺夜班', '所有人員均無法排班'];
+const COVERAGE_KEYWORDS = ['夜班人力不足', '缺白班', '缺夜班', '缺大夜班', '所有人員均無法排班'];
 
 /** 有問題的覆蓋天數（同一天多個警告只算 1 天） */
 export function countProblematicDays(result: ScheduleResult): number {
@@ -299,7 +299,7 @@ export function generateSchedule(
 
   const stats: Record<string, EmployeeStats> = {};
   for (const emp of employees) {
-    let day = 0, night = 0, full = 0, off = 0;
+    let day = 0, night = 0, overnight = 0, full = 0, off = 0;
     let maxConsecutive = 0, currentConsecutive = 0;
 
     for (const shift of schedule[emp.id]) {
@@ -313,7 +313,7 @@ export function generateSchedule(
       }
     }
     maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
-    stats[emp.id] = { day, night, full, off, maxConsecutive };
+    stats[emp.id] = { day, night, overnight, full, off, maxConsecutive };
 
     // 檢查是否有超過 5 連班（通常因使用者手動指定偏好造成）
     if (maxConsecutive > 5) {

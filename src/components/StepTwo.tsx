@@ -4,12 +4,12 @@ import { useScheduleStore } from '@/store/useScheduleStore';
 import { SHIFT_CONFIG } from '@/types/schedule';
 import { getDaysInMonth } from '@/lib/scheduler';
 import { toDateKey } from '@/lib/holidays';
-import ShiftPopover, { cellClickToOpen } from './ShiftPopover';
+import ShiftPopover, { cellClickToOpen, THERAPIST_OPTIONS, NURSE_OPTIONS } from './ShiftPopover';
 import type { OpenCell } from './ShiftPopover';
 
 export default function StepTwo() {
   const {
-    year, month, employees, preferences, isGenerating,
+    mode, year, month, employees, preferences, isGenerating, currentTry,
     setPreference, clearPreferences, generate, setStep,
     holidayMap, fetchHolidays,
   } = useScheduleStore();
@@ -120,6 +120,7 @@ export default function StepTwo() {
 
       <ShiftPopover
         open={openCell}
+        options={mode === 'nurse' ? NURSE_OPTIONS : THERAPIST_OPTIONS}
         onPick={shift => {
           if (!openCell) return;
           const [empId, dayStr] = openCell.key.split('-');
@@ -136,16 +137,21 @@ export default function StepTwo() {
         >
           ← 上一步
         </button>
-        <button
-          onClick={() => generate()}
-          disabled={isGenerating}
-          className="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-        >
-          {isGenerating && (
-            <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        <div className="flex items-center gap-3">
+          {isGenerating && currentTry > 0 && (
+            <span className="text-xs text-gray-500">第 {currentTry} 次</span>
           )}
-          {isGenerating ? '排班中…' : '產生排班 →'}
-        </button>
+          <button
+            onClick={() => generate()}
+            disabled={isGenerating}
+            className="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {isGenerating && (
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            )}
+            {isGenerating ? '排班中…' : '產生排班 →'}
+          </button>
+        </div>
       </div>
     </div>
   );
