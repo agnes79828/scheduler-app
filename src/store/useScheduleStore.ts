@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Employee, ShiftType, Preferences, ScheduleResult } from '@/types/schedule';
-import { generateSchedule, countProblematicDays, countPreferenceViolations } from '@/lib/scheduler';
+import { generateSchedule, countProblematicDays, countPreferenceViolations, countOverConsecutive, countOffDeviation } from '@/lib/scheduler';
 import { fetchTaiwanCalendar, buildHolidayMap } from '@/lib/holidays';
 
 interface ScheduleStore {
@@ -136,22 +136,28 @@ export const useScheduleStore = create<ScheduleStore>()(
         set({ isGenerating: true });
         await new Promise(resolve => setTimeout(resolve, 30));
 
-        // 每次呼叫 generateSchedule 內部用 Math.random()，天然不重複
-        // 複合評分：問題天數（主）＋偏好違反次數（次）
+        // 複合評分（優先順序由高到低）：
+        // 1. 覆蓋問題天數  2. 超過5連班人數  3. 休假偏差  4. 偏好違反次數
         const score = (r: ScheduleResult) => ({
           days: countProblematicDays(r),
+          over: countOverConsecutive(r),
+          off:  countOffDeviation(r, employees),
           pref: countPreferenceViolations(r, employees),
         });
-        const isBetter = (a: ReturnType<typeof score>, b: ReturnType<typeof score>) =>
-          a.days < b.days || (a.days === b.days && a.pref < b.pref);
+        const isBetter = (a: ReturnType<typeof score>, b: ReturnType<typeof score>) => {
+          if (a.days !== b.days) return a.days < b.days;
+          if (a.over !== b.over) return a.over < b.over;
+          if (a.off  !== b.off)  return a.off  < b.off;
+          return a.pref < b.pref;
+        };
 
         let best = generateSchedule(employees, year, month, preferences, previousTail);
         let bestScore = score(best);
         let totalTries = 1;
 
         for (let i = 1; i < maxRetries; i++) {
-          // 若問題天數與偏好都已完美，提前結束
-          if (bestScore.days === 0 && bestScore.pref === 0) break;
+          // 四項全為 0 才算完美，提前結束
+          if (bestScore.days === 0 && bestScore.over === 0 && bestScore.off === 0 && bestScore.pref === 0) break;
           const attempt = generateSchedule(employees, year, month, preferences, previousTail);
           totalTries++;
           const s = score(attempt);

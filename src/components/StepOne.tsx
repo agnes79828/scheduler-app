@@ -41,10 +41,10 @@ export default function StepOne() {
   const hasHolidayData = Object.keys(holidayMap).length > 0;
   const importRef = useRef<HTMLInputElement>(null);
 
-  // 匯出：基本設定 ＋ 排班偏好 合併為一個檔案
+  // 匯出：基本設定 ＋ 排班偏好 ＋ 上月末7天 合併為一個檔案
   const handleExport = () => {
     const data = {
-      version: 1,
+      version: 2,
       year,
       month,
       maxRetries,
@@ -56,6 +56,10 @@ export default function StepOne() {
       // 偏好以員工姓名為 key，跨 session 仍可識別
       preferences: Object.fromEntries(
         employees.map(emp => [emp.name, preferences[emp.id] ?? {}])
+      ),
+      // 上月末7天以員工姓名為 key（陣列長度7，index 0=最早，6=前一天）
+      previousTail: Object.fromEntries(
+        employees.map(emp => [emp.name, previousTail[emp.id] ?? Array(7).fill(null)])
       ),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -115,6 +119,23 @@ export default function StepOne() {
           }
         }
         setPreferences(newPrefs);
+
+        // 依員工姓名還原上月末7天
+        const newPrevTail: Record<string, (ShiftType | null)[]> = {};
+        if (data.previousTail && typeof data.previousTail === 'object') {
+          for (const [name, tail] of Object.entries(data.previousTail)) {
+            const id = nameToId[name];
+            if (!id || !Array.isArray(tail)) continue;
+            newPrevTail[id] = (tail as unknown[]).slice(0, 7).map(s =>
+              ['day', 'night', 'full', 'off'].includes(s as string) ? s as ShiftType : null
+            );
+          }
+        }
+        // 用 setPreviousTailShift 逐格寫入
+        for (const [empId, tail] of Object.entries(newPrevTail)) {
+          tail.forEach((shift, idx) => setPreviousTailShift(empId, idx, shift));
+        }
+
         alert(`匯入完成（${imported.length} 位員工）`);
       } catch {
         alert('檔案解析失敗，請確認格式正確');

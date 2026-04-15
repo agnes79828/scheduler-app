@@ -1,9 +1,20 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useScheduleStore } from '@/store/useScheduleStore';
-import { SHIFT_CONFIG, SHIFT_CYCLE } from '@/types/schedule';
+import { SHIFT_CONFIG } from '@/types/schedule';
+import type { ShiftType } from '@/types/schedule';
 import { getDaysInMonth } from '@/lib/scheduler';
 import { toDateKey } from '@/lib/holidays';
+
+type OpenCell = { empId: string; day: number; x: number; y: number } | null;
+
+const SHIFT_OPTIONS: { shift: ShiftType | null; label: string; color: string }[] = [
+  { shift: 'day',   label: '白班', color: 'bg-sky-100 text-sky-800 border-sky-300 hover:bg-sky-200' },
+  { shift: 'night', label: '夜班', color: 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200' },
+  { shift: 'full',  label: '全日', color: 'bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200' },
+  { shift: 'off',   label: '休',   color: 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200' },
+  { shift: null,    label: '清除', color: 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50' },
+];
 
 export default function StepTwo() {
   const {
@@ -12,29 +23,53 @@ export default function StepTwo() {
     holidayMap, fetchHolidays,
   } = useScheduleStore();
 
+  const [openCell, setOpenCell] = useState<OpenCell>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchHolidays(year);
   }, [year, fetchHolidays]);
 
+  // 點擊外部關閉
+  useEffect(() => {
+    if (!openCell) return;
+    const handleClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpenCell(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [openCell]);
+
   const daysInMonth = getDaysInMonth(year, month);
   const days = Array.from({ length: daysInMonth }, (_, i) => i);
 
-  const handleCellClick = (empId: string, day: number) => {
-    const current = preferences[empId]?.[day] ?? null;
-    const idx = SHIFT_CYCLE.indexOf(current);
-    const next = SHIFT_CYCLE[(idx + 1) % SHIFT_CYCLE.length];
-    setPreference(empId, day, next);
+  const handleCellClick = (empId: string, day: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (openCell?.empId === empId && openCell?.day === day) {
+      setOpenCell(null);
+      return;
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setOpenCell({ empId, day, x: rect.left, y: rect.bottom + window.scrollY });
+  };
+
+  const handlePick = (shift: ShiftType | null) => {
+    if (!openCell) return;
+    setPreference(openCell.empId, openCell.day, shift);
+    setOpenCell(null);
   };
 
   return (
     <div className="bg-white rounded-xl shadow p-6">
       <h2 className="text-lg font-semibold mb-2 text-gray-800">步驟 2：設定排班偏好（選填）</h2>
       <p className="text-sm text-gray-700 mb-1">
-        點擊格子循環切換班別：
-        <span className="mx-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-xs border border-sky-300">白班</span>→
-        <span className="mx-1 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 text-xs border border-indigo-300">夜班</span>→
-        <span className="mx-1 px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 text-xs border border-rose-300">全日</span>→
-        <span className="mx-1 px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-xs border border-gray-300">休</span>→ 清除
+        點擊格子選擇班別：
+        <span className="mx-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-xs border border-sky-300">白班</span>
+        <span className="mx-1 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 text-xs border border-indigo-300">夜班</span>
+        <span className="mx-1 px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 text-xs border border-rose-300">全日</span>
+        <span className="mx-1 px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-xs border border-gray-300">休</span>
       </p>
       <div className="flex items-center gap-3 mb-4 text-xs text-gray-600">
         <span className="flex items-center gap-1">
@@ -87,11 +122,16 @@ export default function StepTwo() {
                   const config = shift ? SHIFT_CONFIG[shift] : null;
                   const key = toDateKey(year, month, d);
                   const isHoliday = key in holidayMap;
+                  const isOpen = openCell?.empId === emp.id && openCell?.day === d;
                   return (
                     <td
                       key={d}
-                      onClick={() => handleCellClick(emp.id, d)}
-                      className={`border border-gray-200 text-center cursor-pointer transition-opacity hover:opacity-70 w-8 h-8 ${
+                      onClick={(e) => handleCellClick(emp.id, d, e)}
+                      className={`border text-center cursor-pointer transition-colors w-8 h-8 relative ${
+                        isOpen
+                          ? 'ring-2 ring-blue-400 ring-inset z-20'
+                          : ''
+                      } ${
                         config
                           ? config.color
                           : isHoliday
@@ -116,6 +156,25 @@ export default function StepTwo() {
           </tbody>
         </table>
       </div>
+
+      {/* 浮動選單 */}
+      {openCell && (
+        <div
+          ref={popoverRef}
+          style={{ position: 'fixed', left: openCell.x, top: openCell.y - window.scrollY + 4 }}
+          className="z-50 bg-white border border-gray-200 rounded-lg shadow-lg p-1 flex gap-1"
+        >
+          {SHIFT_OPTIONS.map(opt => (
+            <button
+              key={opt.label}
+              onClick={() => handlePick(opt.shift)}
+              className={`text-xs px-2 py-1.5 rounded border font-medium transition-colors ${opt.color}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex justify-between mt-6">
         <button

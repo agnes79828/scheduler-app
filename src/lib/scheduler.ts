@@ -114,6 +114,19 @@ export function countPreferenceViolations(result: ScheduleResult, employees: Emp
   return count;
 }
 
+/** 超過 5 連班的員工人數（正常排班應為 0，手動偏好指定可能造成 > 0） */
+export function countOverConsecutive(result: ScheduleResult): number {
+  return Object.values(result.stats).filter(s => s.maxConsecutive > 5).length;
+}
+
+/** 休假天數與目標的總偏差（越小越好） */
+export function countOffDeviation(result: ScheduleResult, employees: Employee[]): number {
+  return employees.reduce((sum, emp) => {
+    const actual = result.stats[emp.id]?.off ?? 0;
+    return sum + Math.abs(actual - emp.daysOffTarget);
+  }, 0);
+}
+
 // previousTail：每位員工上月末 7 天的班別（empId → 長度 7 的陣列）
 export function generateSchedule(
   employees: Employee[],
@@ -163,10 +176,14 @@ export function generateSchedule(
           if (offCounts[emp.id] < emp.daysOffTarget) {
             schedule[emp.id][day] = 'off';
             offCounts[emp.id]++;
-          } else {
-            // 已達休假上限，必須上班（覆蓋已足，補白班）
+          } else if (consecutiveWorkDaysBefore(schedule[emp.id], day, previousTail[emp.id]) < 5) {
+            // 已達休假上限且未達連班上限，補白班
             schedule[emp.id][day] = 'day';
             workCounts[emp.id]++;
+          } else {
+            // 已達休假上限但也已達 5 連班上限，強制休（產生超額休假）
+            schedule[emp.id][day] = 'off';
+            offCounts[emp.id]++;
           }
         }
       }
@@ -189,11 +206,10 @@ export function generateSchedule(
       return randomRank[a.id] - randomRank[b.id];
     });
 
-    const eligible = unassigned.filter(
+    // 絕對不能連超過 5 班：只從未達上限的人選
+    const pool = unassigned.filter(
       e => consecutiveWorkDaysBefore(schedule[e.id], day, previousTail[e.id]) < 5
     );
-    const pool = eligible.length > 0 ? eligible : unassigned;
-    const isForced = eligible.length === 0 && unassigned.length > 0;
 
     // 可上白班：昨天沒上夜班或全日班（含跨月）
     const dayPool = pool.filter(e => !workedNightBefore(schedule[e.id], day, previousTail[e.id]));
@@ -232,15 +248,12 @@ export function generateSchedule(
         workCounts[emp.id]++;
         if (nightForcedForDay) warnings.push({ day, message: `第 ${day + 1} 天：${emp.name} 昨日夜班後仍需排白班（人力不足）` });
         warnings.push({ day, message: `第 ${day + 1} 天：夜班人力不足，可在結果頁圈選全日班後重新排班` });
-        if (isForced) warnings.push({ day, message: `第 ${day + 1} 天：${emp.name} 突破 5 連班限制` });
       } else {
         let dayEmp: Employee, nightEmp: Employee;
         if (nightFirst) {
-          // 先選夜班，再從剩餘選白班
           nightEmp = pickNight()!;
           dayEmp = pickDay(nightEmp.id)!;
         } else {
-          // 先選白班，再從剩餘選夜班
           dayEmp = pickDay()!;
           nightEmp = pickNight(dayEmp.id)!;
         }
@@ -249,7 +262,6 @@ export function generateSchedule(
         workCounts[dayEmp.id]++;
         workCounts[nightEmp.id]++;
         if (nightForcedForDay) warnings.push({ day, message: `第 ${day + 1} 天：${dayEmp.name} 昨日夜班後仍需排白班（人力不足）` });
-        if (isForced) warnings.push({ day, message: `第 ${day + 1} 天：人力不足，突破 5 連班限制` });
       }
     } else if (needDay) {
       const emp = pickDay();
@@ -257,7 +269,6 @@ export function generateSchedule(
         schedule[emp.id][day] = 'day';
         workCounts[emp.id]++;
         if (nightForcedForDay) warnings.push({ day, message: `第 ${day + 1} 天：${emp.name} 昨日夜班後仍需排白班（人力不足）` });
-        if (isForced) warnings.push({ day, message: `第 ${day + 1} 天：${emp.name} 突破 5 連班限制（補白班）` });
       } else {
         warnings.push({ day, message: `第 ${day + 1} 天：缺白班，無可用人員` });
       }
@@ -266,7 +277,6 @@ export function generateSchedule(
       if (emp) {
         schedule[emp.id][day] = 'night';
         workCounts[emp.id]++;
-        if (isForced) warnings.push({ day, message: `第 ${day + 1} 天：${emp.name} 突破 5 連班限制（補夜班）` });
       } else {
         warnings.push({ day, message: `第 ${day + 1} 天：缺夜班，無可用人員` });
       }
@@ -274,11 +284,12 @@ export function generateSchedule(
 
     for (const emp of employees) {
       if (schedule[emp.id][day] === null) {
-        if (offCounts[emp.id] < emp.daysOffTarget) {
+        if (offCounts[emp.id] < emp.daysOffTarget ||
+            consecutiveWorkDaysBefore(schedule[emp.id], day, previousTail[emp.id]) >= 5) {
           schedule[emp.id][day] = 'off';
           offCounts[emp.id]++;
         } else {
-          // 已達休假上限，補白班
+          // 已達休假上限且未達連班上限，補白班
           schedule[emp.id][day] = 'day';
           workCounts[emp.id]++;
         }
@@ -303,6 +314,11 @@ export function generateSchedule(
     }
     maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
     stats[emp.id] = { day, night, full, off, maxConsecutive };
+
+    // 檢查是否有超過 5 連班（通常因使用者手動指定偏好造成）
+    if (maxConsecutive > 5) {
+      warnings.push({ day: -1, message: `${emp.name} 最長連班達 ${maxConsecutive} 天，超過 5 天上限` });
+    }
   }
 
   return {
